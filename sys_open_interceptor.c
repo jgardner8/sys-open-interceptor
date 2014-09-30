@@ -1,16 +1,21 @@
 #include <linux/module.h>
 #include <linux/syscalls.h>
 
+#define P_EXTENSIONS_LEN_MAX 5
+#define P_EXTENSIONS_LEN_MAX_STR "5"
+
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("James Gardner <jamesgardner@live.com.au> "
               "Heavily based on Julia Evans' rickroll.c <https://github.com/jvns/kernel-module-fun/blob/master/rickroll.c>");
 MODULE_DESCRIPTION("Any calls to sys_open with the specified extension are intercepted "
                    "and replaced with the specified file.");
 
-static char *p_replacement_filename, *p_extension;
-static int p_extension_len;
-MODULE_PARM_DESC(p_extension, "Files with one of these extensions will be replaced in sys_open calls.");
-module_param_array(p_extension, charp, &p_extension_len, 0);
+static char *p_replacement_filename;
+static char *p_extensions[P_EXTENSIONS_LEN_MAX];
+static int p_extensions_len;
+MODULE_PARM_DESC(p_extensions, "Files with one of these extensions will be replaced in sys_open calls. "
+    "Max of " P_EXTENSIONS_LEN_MAX_STR " values.");
+module_param_array(p_extensions, charp, &p_extensions_len, 0);
 MODULE_PARM_DESC(p_replacement_filename, "Path to file to replace sys_open calls with.");
 module_param(p_replacement_filename, charp, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 
@@ -49,8 +54,8 @@ static const char *file_extension(const char *filename) {
 asmlinkage long sys_open_override(const char *filename, int flags, umode_t mode) {
     long file;
     int i;
-    for (i = 0; i < p_extension_len; i++) {
-        if (strcmp(file_extension(filename), p_extension[i]) == 0) {
+    for (i = 0; i < p_extensions_len; i++) {
+        if (strcmp(file_extension(filename), p_extensions[i]) == 0) {
             mm_segment_t old_fs = get_fs();
             set_fs(KERNEL_DS);
             file = (*g_sys_open_original)(p_replacement_filename, flags, mode);
@@ -68,6 +73,11 @@ static int __init mod_init(void) {
 
     if (!p_replacement_filename) {
         printk(KERN_ERR "Missing filename parameter\n");
+        return INVALID_ARGUMENT;
+    }
+
+    if (!p_extensions_len) {
+        printk(KERN_ERR "Missing extensions parameter\n");
         return INVALID_ARGUMENT;
     }
  
